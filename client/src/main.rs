@@ -4,11 +4,12 @@ use tokio::{
 };
 use uselib::{
     client_config::Client,
-    quic,
     logger::init_logger
 };
 use quinn::{Connection, Endpoint};
 use std::error::Error;
+
+mod client_cfg;
 
 #[tokio::main]
 async fn main() {
@@ -57,7 +58,7 @@ async fn handle_connection(conn: TcpStream, target: &String) {
 // Connect to target based on quic
 async fn connect_to_target(target: &String)->Result<Connection, Box<dyn Error>> {
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
-    endpoint.set_default_client_config(quic::configure_client());
+    endpoint.set_default_client_config(client_cfg::configure_client());
 
     // connect to server
     let connection = endpoint

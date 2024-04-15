@@ -8,5 +8,3 @@ json = "*"
 tokio = { version = "*", features = ["full"] }
 log = "*"
 pretty_env_logger = "*"
-quinn = "*"
-rustls = { version = "*", features = ["dangerous_configuration", "quic"] }
