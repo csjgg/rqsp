@@ -1,0 +1,13 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "*", features = ["full"] }
+quinn = "*"
+rustls = { version = "*", features = ["dangerous_configuration", "quic"] }
+uselib = { path = "../uselib" }
+log = "*"
+pretty_env_logger = "*"
+bytes = "*"

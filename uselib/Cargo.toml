@@ -1,0 +1,12 @@
+[package]
+name = "uselib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+json = "*"
+tokio = { version = "*", features = ["full"] }
+log = "*"
+pretty_env_logger = "*"
+quinn = "*"
+rustls = { version = "*", features = ["dangerous_configuration", "quic"] }
