@@ -1,13 +1,10 @@
-use tokio::{
-    io,
-    net::{TcpListener, TcpStream},
-};
-use uselib::{
-    client_config::Client,
-    logger::init_logger
-};
 use quinn::{Connection, Endpoint};
 use std::error::Error;
+use tokio::{
+    io::{self},
+    net::{TcpListener, TcpStream},
+};
+use uselib::{client_config::Client, logger::init_logger};
 
 mod client_cfg;
 
@@ -49,41 +46,60 @@ async fn bind_connection(bind: &String) -> TcpListener {
 }
 
 async fn handle_connection(conn: TcpStream, target: &String) {
-    let targetconn = connect_to_target(target).await.unwrap();
+    log::info!("New connection:{}", conn.peer_addr().unwrap());
+    let targetconn = match connect_to_target(target).await {
+        Ok(conn) => conn,
+        Err(err) => {
+            log::error!("Error connecting to target: {}", err);
+            return;
+        }
+    };
     if let Err(err) = forward_data(conn, targetconn).await {
         log::error!("Error forwarding data: {}", err);
     }
 }
 
 // Connect to target based on quic
-async fn connect_to_target(target: &String)->Result<Connection, Box<dyn Error>> {
+async fn connect_to_target(target: &String) -> Result<Connection, Box<dyn Error>> {
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())?;
     endpoint.set_default_client_config(client_cfg::configure_client());
 
     // connect to server
-    let connection = endpoint
-        .connect(target.parse().unwrap(),"target")
-        .unwrap()
-        .await?;
+    let connection = endpoint.connect(target.parse()?, "target")?.await?;
     return Ok(connection);
 }
 
 async fn forward_data(tcp_stream: TcpStream, quinn_conn: Connection) -> io::Result<()> {
+    let addr = &tcp_stream.peer_addr()?;
     let (mut tcp_reader, mut tcp_writer) = tcp_stream.into_split();
     let (mut quinn_writer, mut quinn_reader) = quinn_conn.open_bi().await?;
 
-    let client_to_server = tokio::spawn(async move {
-        io::copy(&mut tcp_reader, &mut quinn_writer).await
-    });
+    let client_to_server = io::copy(&mut tcp_reader, &mut quinn_writer);
 
-    let server_to_client = tokio::spawn(async move {
-        io::copy(&mut quinn_reader, &mut tcp_writer).await
-    });
+    let server_to_client = io::copy(&mut quinn_reader, &mut tcp_writer);
 
-    let (client_to_server_res, server_to_client_res) = tokio::join!(client_to_server, server_to_client);
+    let (client_to_server_res, server_to_client_res) =
+        tokio::join!(client_to_server, server_to_client);
 
-    client_to_server_res??;
-    server_to_client_res??;
-
+    match client_to_server_res {
+        Ok(_) => {
+            log::info!("Connection closed:{}", addr);
+        }
+        Err(e) => {
+            if e.to_string() != "connection lost" {
+                return Err(e);
+            }
+        }
+    }
+    match server_to_client_res {
+        Ok(_) => {
+            log::info!("Connection closed:{}", addr);
+        }
+        Err(e) => {
+            if e.to_string() != "connection lost" {
+                return Err(e);
+            }
+        }
+    }
     Ok(())
 }

@@ -1,4 +1,4 @@
-use quinn::Connection;
+use quinn::{RecvStream, SendStream};
 use std::error::Error;
 use tokio::io::{self};
 use tokio::net::{TcpStream, UdpSocket};
@@ -23,15 +23,14 @@ pub struct Socks5 {
     port: u16,
 }
 
-pub async fn handle_socks5(conn: &Connection) -> Result<Socks5, Box<dyn Error>> {
-    start_socks5(conn).await?;
-    let sock = get_socks5_target(conn).await?;
+pub async fn handle_socks5(send: &mut SendStream, recv: &mut RecvStream) -> Result<Socks5, Box<dyn Error>> {
+    start_socks5(send, recv).await?;
+    let sock = get_socks5_target(recv).await?;
     Ok(sock)
 }
 
-async fn start_socks5(conn: &Connection) -> Result<(), Box<dyn Error>> {
+async fn start_socks5(send: &mut SendStream, recv: &mut RecvStream) -> Result<(), Box<dyn Error>> {
     let mut buf = [0u8; 2];
-    let (mut send, mut recv) = conn.open_bi().await?;
     recv.read_exact(&mut buf).await?;
     if buf[0] != 0x05 {
         return Err(Box::new(io::Error::new(
@@ -45,9 +44,8 @@ async fn start_socks5(conn: &Connection) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn get_socks5_target(conn: &Connection) -> Result<Socks5, Box<dyn Error>> {
+async fn get_socks5_target(recv: &mut RecvStream) -> Result<Socks5, Box<dyn Error>> {
     let mut buf = [0u8; 4];
-    let (_, mut recv) = conn.open_bi().await?;
     recv.read_exact(&mut buf).await?;
     let conn = match buf[1] {
         0x01 => ConnectionType::TCP,
@@ -104,23 +102,19 @@ impl Socks5 {
     pub fn get_conn_type(&self) -> ConnectionType {
         self.conn_type.clone()
     }
-    pub async fn connect_tcp(&self, conn: &Connection) -> Result<TcpStream, Box<dyn Error>> {
+    pub async fn connect_tcp(&self, send: &mut SendStream) -> Result<TcpStream, Box<dyn Error>> {
         let stream = TcpStream::connect((self.target.as_str(), self.port)).await?;  
-        let (mut send, _) = conn.open_bi().await?;
-        let mut success: Vec<u8> = vec![0x05, 0x00, 0x00, 0x01];
-        success.extend_from_slice(self.target.as_bytes());
-        success.extend_from_slice(&self.port.to_be_bytes());
+        let success: Vec<u8> =vec![0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         send.write_all(&success).await?;
+        log::info!("Connected to target{}:{}", self.target, self.port);
         Ok(stream)
     }
-    pub async fn connect_udp(&self, conn: &Connection) -> Result<UdpSocket, Box<dyn Error>> {
+    pub async fn connect_udp(&self, send: &mut SendStream) -> Result<UdpSocket, Box<dyn Error>> {
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
         socket.connect((self.target.as_str(), self.port)).await?;
-        let (mut send, _) = conn.open_bi().await?;
-        let mut success: Vec<u8> = vec![0x05, 0x00, 0x00, 0x01];
-        success.extend_from_slice(self.target.as_bytes());
-        success.extend_from_slice(&self.port.to_be_bytes());
+        let success: Vec<u8> =vec![0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         send.write_all(&success).await?;
+        log::info!("Connected to target{}:{}", self.target, self.port);
         Ok(socket)
     }
 }
